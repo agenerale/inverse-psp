@@ -7,7 +7,6 @@ import argparse
 import matplotlib.pyplot as plt
 import corner
 import numpy as np
-#import ot as pot
 import torch
 import torchdyn
 import gpytorch
@@ -283,7 +282,6 @@ width = 512
 model = MLP(dim=ndim, cdim=cdim, layers=layers, w=width).to(device)
 
 cnf_fname = f'fm_selu_{layers+2}_{width}_ema_res.pth'
-#cnf_fname = 'fm_selu.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 if args.load:
@@ -299,7 +297,6 @@ ema_model = torch.optim.swa_utils.AveragedModel(model, avg_fn=ema_avg)
 swa_scheduler = torch.optim.swa_utils.SWALR(optimizer, swa_lr=args.lr_end)
 
 if args.train:
-    lr = []
     for k in range(args.n_epoch):
         optimizer.zero_grad()
         t = torch.rand(args.batch_size, 1).to(device)
@@ -324,17 +321,10 @@ if args.train:
             scheduler.step()
         
         if (k + 1) % 50 == 0:
-            #print(f"{k+1}: loss {loss.item():0.3f} - lr {optimizer.param_groups[0]['lr']:0.3e}")
             print(f"{k+1}: loss {loss.item():0.3f} - lr {scheduler.get_last_lr()[0]:0.3e}")
         
         if (k + 1) % 5000 == 0:
             torch.save(model.state_dict(), cnf_fname)
-            
-        #lr.append(optimizer.param_groups[0]['lr'])
-
-#plt.figure(figsize=(7.5,6.5))
-#plt.plot(np.arange(0,len(lr),1),lr)
-#plt.savefig('./lr.png', bbox_inches='tight')
         
 # Compute trajectories and plot
 n_sample = 2048
@@ -358,4 +348,4 @@ for micro in microindx_array:
         plot_corner_theta(traj,pr_max,pr_min,micro,lbl_theta)
         plot_corner_prop(traj,y_cond,out_max,out_min,micro,lbl_prop)
 
-#SBC(11,100,ndim)
+SBC(11,100,ndim)
