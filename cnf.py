@@ -19,8 +19,8 @@ font = {'family' : 'serif','weight' : 'normal','size'   : 20}
 plt.rc('font', **font)
 
 parser = argparse.ArgumentParser(description="Continuous Flow")
-parser.add_argument("--train", action='store_true', help="train (True) cuda")
-parser.add_argument("--load", action='store_false', help="load pretrained model")
+parser.add_argument("--train", action='store_false', help="train (True) cuda")
+parser.add_argument("--load", action='store_true', help="load pretrained model")
 parser.add_argument("--n_epoch", default=200000, type=int, help="number of epochs for training RealNVP")
 parser.add_argument("--lr_init", default=1e-4, type=float, help="init. learning rate")
 parser.add_argument("--lr_end", default=1e-10, type=float, help="end learning rate")
@@ -35,17 +35,20 @@ class ResidualBlock(torch.nn.Module):
         
         self.net = torch.nn.Sequential(
             torch.nn.Linear(in_dim, w),
-            torch.nn.SELU(),
+            torch.nn.GELU(),
+            torch.nn.BatchNorm1d(w),
             torch.nn.Linear(w, out_dim),
             )
-        self.selu = torch.nn.SELU()
+        self.gelu = torch.nn.GELU()
+        self.bn = torch.nn.BatchNorm1d(out_dim)
         
     def forward(self, x, yt):
         in_x = torch.cat([x, yt], -1)
         residual = x
         out = self.net(in_x)
         out += residual
-        out = self.selu(out)
+        out = self.gelu(out)
+        out = self.bn(out)
         return out
     
 class cEmbed(torch.nn.Module):
@@ -54,11 +57,14 @@ class cEmbed(torch.nn.Module):
         
         self.net = torch.nn.Sequential(
             torch.nn.Linear(in_dim, w),
-            torch.nn.SELU(),
+            torch.nn.GELU(),
+            torch.nn.BatchNorm1d(w),
             torch.nn.Linear(w, w),
-            torch.nn.SELU(),
+            torch.nn.GELU(),
+            torch.nn.BatchNorm1d(w),
             torch.nn.Linear(w, out_dim),
-            torch.nn.SELU(),            
+            torch.nn.GELU(),   
+            torch.nn.BatchNorm1d(out_dim),
             )
         
     def forward(self, y, t):
@@ -73,7 +79,8 @@ class MLP(torch.nn.Module):
             out_dim = dim
         self.first_layer = torch.nn.Sequential(
             torch.nn.Linear(dim + cdim + 1, w),
-            torch.nn.SELU(),
+            torch.nn.GELU(),
+            torch.nn.BatchNorm1d(w),
             )
         
         self.cond = cEmbed(cdim+1,cdim+1)
@@ -86,6 +93,7 @@ class MLP(torch.nn.Module):
             
     def forward(self, x, y, t):
         yt = self.cond(y, t)
+        #yt = torch.cat([y, t], -1)
         in_x = torch.cat([x, yt], -1)
         out = self.first_layer(in_x)
         
@@ -281,7 +289,8 @@ layers = 3
 width = 512
 model = MLP(dim=ndim, cdim=cdim, layers=layers, w=width).to(device)
 
-cnf_fname = f'fm_selu_{layers+2}_{width}_ema_res.pth'
+cnf_fname = f'fm_swish_{layers+2}_{width}_ema_res_bn.pth'
+#cnf_fname = 'fm_selu.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 if args.load:
@@ -297,6 +306,7 @@ ema_model = torch.optim.swa_utils.AveragedModel(model, avg_fn=ema_avg)
 swa_scheduler = torch.optim.swa_utils.SWALR(optimizer, swa_lr=args.lr_end)
 
 if args.train:
+    lr = []
     for k in range(args.n_epoch):
         optimizer.zero_grad()
         t = torch.rand(args.batch_size, 1).to(device)
@@ -321,10 +331,17 @@ if args.train:
             scheduler.step()
         
         if (k + 1) % 50 == 0:
+            #print(f"{k+1}: loss {loss.item():0.3f} - lr {optimizer.param_groups[0]['lr']:0.3e}")
             print(f"{k+1}: loss {loss.item():0.3f} - lr {scheduler.get_last_lr()[0]:0.3e}")
         
         if (k + 1) % 5000 == 0:
             torch.save(model.state_dict(), cnf_fname)
+            
+        #lr.append(optimizer.param_groups[0]['lr'])
+
+#plt.figure(figsize=(7.5,6.5))
+#plt.plot(np.arange(0,len(lr),1),lr)
+#plt.savefig('./lr.png', bbox_inches='tight')
         
 # Compute trajectories and plot
 n_sample = 2048
@@ -348,4 +365,4 @@ for micro in microindx_array:
         plot_corner_theta(traj,pr_max,pr_min,micro,lbl_theta)
         plot_corner_prop(traj,y_cond,out_max,out_min,micro,lbl_prop)
 
-SBC(11,100,ndim)
+#SBC(11,100,ndim)
