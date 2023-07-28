@@ -36,11 +36,11 @@ class ResidualBlock(torch.nn.Module):
         self.net = torch.nn.Sequential(
             torch.nn.Linear(in_dim, w),
             torch.nn.GELU(),
-            torch.nn.BatchNorm1d(w),
+            torch.nn.LayerNorm(w),
             torch.nn.Linear(w, out_dim),
             )
         self.gelu = torch.nn.GELU()
-        self.bn = torch.nn.BatchNorm1d(out_dim)
+        self.bn = torch.nn.LayerNorm(out_dim)
         
     def forward(self, x, yt):
         in_x = torch.cat([x, yt], -1)
@@ -58,13 +58,13 @@ class cEmbed(torch.nn.Module):
         self.net = torch.nn.Sequential(
             torch.nn.Linear(in_dim, w),
             torch.nn.GELU(),
-            torch.nn.BatchNorm1d(w),
+            torch.nn.LayerNorm(w),
             torch.nn.Linear(w, w),
             torch.nn.GELU(),
-            torch.nn.BatchNorm1d(w),
+            torch.nn.LayerNorm(w),
             torch.nn.Linear(w, out_dim),
             torch.nn.GELU(),   
-            torch.nn.BatchNorm1d(out_dim),
+            torch.nn.LayerNorm(out_dim),
             )
         
     def forward(self, y, t):
@@ -80,7 +80,7 @@ class MLP(torch.nn.Module):
         self.first_layer = torch.nn.Sequential(
             torch.nn.Linear(dim + cdim + 1, w),
             torch.nn.GELU(),
-            torch.nn.BatchNorm1d(w),
+            torch.nn.LayerNorm(w),
             )
         
         self.cond = cEmbed(cdim+1,cdim+1)
@@ -289,7 +289,7 @@ layers = 3
 width = 512
 model = MLP(dim=ndim, cdim=cdim, layers=layers, w=width).to(device)
 
-cnf_fname = f'fm_swish_{layers+2}_{width}_ema_res_bn.pth'
+cnf_fname = f'fm_swish_{layers+2}_{width}_ema_res_ln.pth'
 #cnf_fname = 'fm_selu.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
