@@ -7,6 +7,7 @@ import argparse
 import matplotlib.pyplot as plt
 import corner
 import numpy as np
+#import ot as pot
 import torch
 import torchdyn
 import gpytorch
@@ -24,11 +25,25 @@ parser.add_argument("--load", action='store_true', help="load pretrained model")
 parser.add_argument("--n_epoch", default=200000, type=int, help="number of epochs for training RealNVP")
 parser.add_argument("--lr_init", default=1e-4, type=float, help="init. learning rate")
 parser.add_argument("--lr_end", default=1e-10, type=float, help="end learning rate")
-parser.add_argument("--batch_size", default=1024, type=int, help="minibatch size")
+parser.add_argument("--batch_size", default=2048, type=int, help="minibatch size")
 parser.add_argument("--sigma", default=1e-6, type=float, help="noise")
 parser.add_argument("--swa_start", default=40000, type=float, help="SWA")
 args = parser.parse_args()
 
+class SinPosEmbed(torch.nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        device = x.device
+        half_dim = self.dim // 2
+        embeddings = math.log(10000) / (half_dim - 1)
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
+        embeddings = x[:, None] * embeddings[None, :]
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        return embeddings
+    
 class ResidualBlock(torch.nn.Module):
     def __init__(self, in_dim, out_dim, w=512):
         super(ResidualBlock, self).__init__()
@@ -51,49 +66,44 @@ class ResidualBlock(torch.nn.Module):
         out = self.bn(out)
         return out
     
-class cEmbed(torch.nn.Module):
+class CondTimeEmbed(torch.nn.Module):
     def __init__(self, in_dim, out_dim, w=32):
-        super(cEmbed, self).__init__()
+        super(CondTimeEmbed, self).__init__()
         
+        self.sinembed = SinPosEmbed(4)
         self.net = torch.nn.Sequential(
-            torch.nn.Linear(in_dim, w),
+            torch.nn.Linear(in_dim + 3, w),
             torch.nn.GELU(),
-            torch.nn.LayerNorm(w),
-            torch.nn.Linear(w, w),
-            torch.nn.GELU(),
-            torch.nn.LayerNorm(w),
             torch.nn.Linear(w, out_dim),
-            torch.nn.GELU(),   
-            torch.nn.LayerNorm(out_dim),
             )
         
     def forward(self, y, t):
-        in_x = torch.cat([y, t], -1)
+        temb = self.sinembed(t).squeeze()
+        in_x = torch.cat([y, temb], -1)
         out = self.net(in_x)
-        return out  
+        return out   
     
 class MLP(torch.nn.Module):
-    def __init__(self, dim, cdim, out_dim=None, layers=3, w=512):
+    def __init__(self, dim, cdim, edim, out_dim=None, layers=3, w=512):
         super(MLP, self).__init__()
         if out_dim is None:
             out_dim = dim
         self.first_layer = torch.nn.Sequential(
-            torch.nn.Linear(dim + cdim + 1, w),
+            torch.nn.Linear(edim + dim, w),
             torch.nn.GELU(),
             torch.nn.LayerNorm(w),
             )
         
-        self.cond = cEmbed(cdim+1,cdim+1)
+        self.cond = CondTimeEmbed(cdim+1,edim)
         
         self.blocks = torch.nn.ModuleList()       
         for i in range(layers):
-            self.blocks.append(ResidualBlock(w + cdim + 1, w, w))
+            self.blocks.append(ResidualBlock(w + edim, w, w))
             
-        self.last_layer = torch.nn.Linear(w + cdim + 1, out_dim)
+        self.last_layer = torch.nn.Linear(w + edim, out_dim)
             
     def forward(self, x, y, t):
         yt = self.cond(y, t)
-        #yt = torch.cat([y, t], -1)
         in_x = torch.cat([x, yt], -1)
         out = self.first_layer(in_x)
         
@@ -287,10 +297,9 @@ ndim = 3
 cdim = 3
 layers = 3
 width = 512
-model = MLP(dim=ndim, cdim=cdim, layers=layers, w=width).to(device)
+model = MLP(dim=ndim, cdim=cdim, edim=32, layers=layers, w=width).to(device)
 
-cnf_fname = f'fm_swish_{layers+2}_{width}_ema_res_ln.pth'
-#cnf_fname = 'fm_selu.pth'
+cnf_fname = f'fm_gelu_{layers+2}_{width}_ema_sin.pth'#_200k.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 if args.load:
@@ -336,12 +345,6 @@ if args.train:
         
         if (k + 1) % 5000 == 0:
             torch.save(model.state_dict(), cnf_fname)
-            
-        #lr.append(optimizer.param_groups[0]['lr'])
-
-#plt.figure(figsize=(7.5,6.5))
-#plt.plot(np.arange(0,len(lr),1),lr)
-#plt.savefig('./lr.png', bbox_inches='tight')
         
 # Compute trajectories and plot
 n_sample = 2048
