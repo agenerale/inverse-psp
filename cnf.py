@@ -7,27 +7,27 @@ import argparse
 import matplotlib.pyplot as plt
 import corner
 import numpy as np
-#import ot as pot
 import torch
 import torchdyn
 import gpytorch
 from torchdyn.core import NeuralODE
 from scipy.stats import binom
 from models.mogp import MultitaskGPModel, NGDMultitaskGPModel
-plt.rc('xtick',labelsize=20)
-plt.rc('ytick',labelsize=20)
+from models.dkl import FeatureExtractor, DKLModel
+
+plt.rc('xtick',labelsize=16)
+plt.rc('ytick',labelsize=16)
 font = {'family' : 'serif','weight' : 'normal','size'   : 20}
 plt.rc('font', **font)
 
 parser = argparse.ArgumentParser(description="Continuous Flow")
-parser.add_argument("--train", action='store_false', help="train (True) cuda")
-parser.add_argument("--load", action='store_true', help="load pretrained model")
-parser.add_argument("--n_epoch", default=200000, type=int, help="number of epochs for training RealNVP")
+parser.add_argument("--train", action='store_true', help="train (True) cuda")
+parser.add_argument("--load", action='store_false', help="load pretrained model")
+parser.add_argument("--n_epoch", default=5000, type=int, help="number of epochs for training RealNVP")
 parser.add_argument("--lr_init", default=1e-4, type=float, help="init. learning rate")
 parser.add_argument("--lr_end", default=1e-10, type=float, help="end learning rate")
-parser.add_argument("--batch_size", default=2048, type=int, help="minibatch size")
+parser.add_argument("--batch_size", default=512, type=int, help="minibatch size")
 parser.add_argument("--sigma", default=1e-6, type=float, help="noise")
-parser.add_argument("--swa_start", default=40000, type=float, help="SWA")
 args = parser.parse_args()
 
 class SinPosEmbed(torch.nn.Module):
@@ -168,17 +168,20 @@ def plot_trajectories_1d(traj, t_span,micro):
 
 def plot_corner_theta(traj,pr_max,pr_min,micro,lbl_theta):
     theta = 0.5*(traj[-1,:,:] + 1)*(pr_max - pr_min) + pr_min
+    #theta = traj[-1,:,:]*pr_s + pr_m
     theta = theta.detach().cpu().numpy() 
     fig = corner.corner(theta, labels=lbl_theta, hist_bin_factor=2, smooth=True, truths=presults[micro,:])
     plt.savefig('./images/corner_theta_fm_selu' + str(micro) + '.png', bbox_inches='tight') 
 
-def plot_corner_prop(traj,y_cond,out_max,out_min,micro,lbl_prop):
+def plot_corner_prop(traj,y_cond,out_m,out_s,micro,lbl_prop):
     y_calc = predict(traj[-1,:,:])
-    y_calc = 0.5*(y_calc + 1)*(out_max - out_min) + out_min
+    #y_calc = 0.5*(y_calc + 1)*(out_max - out_min) + out_min
+    y_calc = y_calc*out_s + out_m
     y_calc = y_calc.detach().cpu().numpy()
-    y_calc[:,:2] = y_calc[:,:2]/1e3
-    y_cond = 0.5*(y_cond + 1)*(out_max - out_min) + out_min
-    y_cond[:2] = y_cond[:2]/1e3
+    y_calc[:,:3] = y_calc[:,:3]/1e3
+    #y_cond = 0.5*(y_cond + 1)*(out_max - out_min) + out_min
+    y_cond = (y_cond*out_s + out_m).squeeze()
+    y_cond[:3] = y_cond[:3]/1e3
     fig = corner.corner(y_calc, labels=lbl_prop, hist_bin_factor=2, smooth=False, truths=y_cond.detach().cpu().numpy())
     plt.savefig('./images/corner_prop_fm_selu' + str(micro) + '.png', bbox_inches='tight') 
       
@@ -194,12 +197,13 @@ def SBC(L,N,ndim):
             ).to(device)
         with torch.no_grad():
             traj = node.trajectory(
-                torch.randn((L,ndim)).to(device),
-                t_span=torch.linspace(0, 1, 5),
-                )
+                    torch.randn((L,ndim)).to(device),
+                    t_span=torch.linspace(0, 1, 100),
+                    )
         xp = traj[-1,...]
         for j in range(ndim):
             r[i,j] = np.sum(1*(xp[:,j] < x[:,j]).detach().cpu().numpy())
+        
         if i % 10:
             print(f"Validation: {i+1}/{N*L}")
             
@@ -214,7 +218,22 @@ def SBC(L,N,ndim):
         ax.plot(np.arange(0,L+1,1), mean*np.ones((L+1)),color='maroon')
         ax.fill_between(np.arange(0,L+1,1), lb, ub, color='maroon', alpha=.15)
         ax.set_xlabel(f'Rank Statistic {i}')
-    plt.savefig('./images/calibration_fm_selu.png', bbox_inches='tight')     
+    plt.savefig('./images/calibration_fm_selu.png', bbox_inches='tight')   
+    
+def plot_annotate(output):
+    fig, ax = plt.subplots(figsize=(25,20))
+    ax.scatter(output[:,0],output[:,1],s=20,color='tab:blue')
+    for i, txt in enumerate (np.arange(0,output.shape[0],1)):
+        ax.annotate(txt, (output[i,0],output[i,1]))
+    plt.xlabel(r'$E_1$')
+    plt.ylabel(r'$E_2$') 
+
+    fig, ax = plt.subplots(figsize=(25,20))
+    ax.scatter(output[:,0],output[:,1],s=20,color='tab:blue')
+    for i, txt in enumerate (np.arange(0,output.shape[0],1)):
+        ax.annotate(txt, (output[i,0],output[i,1]))
+    plt.xlabel(r'$E_1$')
+    plt.ylabel(r'$G_{12}$') 
         
 def norm_scaling(x):
     x = torch.from_numpy(x).float().to(device)
@@ -232,74 +251,89 @@ def unit_scaling(x):
     
     return x, x_min, x_max    
 
-def load_mogp(likelihood_file,model_file):
-    num_latents = 3
-    num_tasks = 3
-    num_inducing = int(0.02*7992)
-    input_dims = 3   
+def load_mogp(likelihood_file,model_file,num_mix,num_latents,num_tasks,num_inducing,input_dims):
     
     likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=num_tasks)
-    model = NGDMultitaskGPModel(num_latents,num_tasks,num_inducing,input_dims,1e-6)
+    model = NGDMultitaskGPModel(num_latents,num_tasks,num_inducing,input_dims,num_mix)
     state_dict_model = torch.load(likelihood_file)
     state_dict_likelihood = torch.load(model_file)
     model.load_state_dict(state_dict_model)
     likelihood.load_state_dict(state_dict_likelihood)
     
     return likelihood, model
+    
+def load_dkl(likelihood_file,model_file,feature_file):
+    num_latents = 3
+    num_tasks = 3
+    num_inducing = int(0.02*7992)
+    input_dims = 3   
+    
+    out_dim = input_dims  
+    layers = 3
+    width = 64   
+    num_mix = 4
+    
+    feature_extractor = FeatureExtractor(input_dims,out_dim,layers=layers,w=width)
+    model = DKLModel(feature_extractor, out_dim, num_tasks, num_inducing, num_mix)
+    likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=num_tasks)
+    
+    state_dict_model = torch.load(likelihood_file)
+    state_dict_likelihood = torch.load(model_file)
+    state_dict_feature = torch.load(feature_file)
+    model.load_state_dict(state_dict_model)
+    likelihood.load_state_dict(state_dict_likelihood)
+    feature_extractor.load_state_disct(state_dict_feature)
+    
+    return likelihood, model    
 
 def load_data(file):
-    with h5py.File(file, "r") as f:
-        #print("Keys: %s" % f.keys())
+    with h5py.File("abq_results.h5", "r") as f:
         mresults = f['mech'][()]
         tresults = f['thermal'][()]
         presults = f['params'][()]
-        f.close()
+    f.close()
 
     mresults[:, [3, 2]] = mresults[:, [2, 3]]
-    mresults_mean = np.array([np.mean(mresults[:,1:2],axis=1),
-                              mresults[:,5]]).T
-    tresults_mean = np.mean(tresults[:,1:],axis=1)[...,None]
-    output = np.hstack((mresults_mean,tresults_mean))
-    
+    mresults = np.hstack((mresults[:,1:3], mresults[:,5][...,None]))                     
+    output = np.hstack((mresults,tresults[:,1:]))
+   
     return output, presults
 
 def predict(x):
     ps_samples = likelihood_ps(model_ps(x)).rsample() 
-    ps_samples[ps_samples < -1] = -1
-    ps_samples[ps_samples > 1] = 1
     y = likelihood_sp(model_sp(ps_samples)).rsample()
     
     return y  
    
 device = torch.device("cuda")    
-   
+
 output, presults = load_data("abq_results.h5")
 pr_scaled, pr_min, pr_max = unit_scaling(presults)
-output, out_min, out_max = unit_scaling(output)
+output, out_m, out_s = norm_scaling(output)
 
-#microindx_array = [7838,2498,3882,4148,1005]
-microindx_array = [7838,2498,3882,409,9473]#1005]
+#microindx_array = [7838,2498,3882,409,9473] # on diagonal
+microindx_array = [7838,7105,8132,8548,9473] # off diagonal
 
 # Load in linkages    
-likelihood_file = "mogp_model_state_psNG_unit.pth"
-model_file = "mogp_likelihood_state_psNG_unit.pth"
-likelihood_ps, model_ps = load_mogp(likelihood_file,model_file)
+likelihood_file = 'mogp_model_state_psNGc.pth'#_unit.pth'
+model_file = 'mogp_likelihood_state_psNGc.pth'#_unit.pth'
+likelihood_ps, model_ps = load_mogp(likelihood_file,model_file,4,3,3,int(0.02*7992),3)
 likelihood_ps = likelihood_ps.to(device)
 model_ps = model_ps.to(device)
 
-likelihood_file = 'mogp_model_state_spNG_unit.pth'
-model_file = 'mogp_likelihood_state_spNG_unit.pth'
-likelihood_sp, model_sp = load_mogp(likelihood_file,model_file)
+likelihood_file = 'mogp_model_state_spNGc.pth'#_unit.pth'
+model_file = 'mogp_likelihood_state_spNGc.pth'#_unit.pth'
+likelihood_sp, model_sp = load_mogp(likelihood_file,model_file,4,5,5,int(0.02*7992),3)
 likelihood_sp = likelihood_sp.to(device)
 model_sp = model_sp.to(device)
 
 ndim = 3
-cdim = 3
+cdim = 5
 layers = 3
 width = 512
 model = MLP(dim=ndim, cdim=cdim, edim=32, layers=layers, w=width).to(device)
 
-cnf_fname = f'fm_gelu_{layers+2}_{width}_ema_sin.pth'#_200k.pth'
+cnf_fname = f'fm_gelu_{layers+2}_{width}_ema_sin_norm.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 if args.load:
@@ -307,12 +341,16 @@ if args.load:
     model.load_state_dict(state_dict)
 
 optimizer = torch.optim.Adam(model.parameters(), lr = args.lr_init)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,args.n_epoch-args.swa_start,args.lr_end)
 
 ema_avg = lambda averaged_model_parameter, model_parameter, num_averaged:\
 0.1 * averaged_model_parameter + 0.9 * model_parameter
 ema_model = torch.optim.swa_utils.AveragedModel(model, avg_fn=ema_avg)
-swa_scheduler = torch.optim.swa_utils.SWALR(optimizer, swa_lr=args.lr_end)
+
+swa_scheduler = torch.optim.swa_utils.SWALR(optimizer,
+                                            swa_lr=args.lr_end,
+                                            anneal_epochs=args.n_epoch,
+                                            anneal_strategy='cos',
+                                            last_epoch=-1)
 
 if args.train:
     lr = []
@@ -322,7 +360,7 @@ if args.train:
         x1 = 2*torch.rand((args.batch_size,ndim)).to(device) - 1
         y = predict(x1)
         
-        # flow matching loss Lipman (2023)
+        # flow matching loss
         mu_t = t*x1
         sigma_t = 1 - (1 - args.sigma)*t
         x = mu_t + sigma_t * torch.randn(args.batch_size, ndim).to(device)
@@ -333,29 +371,25 @@ if args.train:
         loss.backward()
         optimizer.step()
         
-        if k > args.n_epoch-args.swa_start:
-            ema_model.update_parameters(model)
-            swa_scheduler.step()
-        else:
-            scheduler.step()
-        
+        ema_model.update_parameters(model)
+        swa_scheduler.step()
+
         if (k + 1) % 50 == 0:
-            #print(f"{k+1}: loss {loss.item():0.3f} - lr {optimizer.param_groups[0]['lr']:0.3e}")
-            print(f"{k+1}: loss {loss.item():0.3f} - lr {scheduler.get_last_lr()[0]:0.3e}")
+            print(f"{k+1}: loss {loss.item():0.3f} - lr {swa_scheduler.get_last_lr()[0]:0.3e}")
         
         if (k + 1) % 5000 == 0:
             torch.save(model.state_dict(), cnf_fname)
         
 # Compute trajectories and plot
-n_sample = 2048
-lbl_prop = [r'$E$ (GPa)', r'$G$ (GPa)', r'$k$ (W/mK)']
+n_sample = 1024
+lbl_prop = [r'$E_1$ (GPa)',r'$E_2$ (GPa)', r'$G_{12}$ (GPa)', r'$k_1$ (W/mK)', r'$k_2$ (W/mK)']
 lbl_theta = [r'$\theta_{0}$',r'$\theta_{1}$',r'$\theta_{2}$']
     
 for micro in microindx_array:
     y_cond = output[micro,:]
 
     node = NeuralODE(
-        torchdyn_wrapper(model, y_cond.expand(n_sample,cdim)), solver="dopri5", sensitivity="adjoint", atol=1e-4, rtol=1e-4
+        torchdyn_wrapper(model, y_cond.expand(n_sample,cdim)), solver="dopri5", sensitivity="adjoint", atol=1e-5, rtol=1e-5
         ).to(device)
 
     with torch.no_grad():
@@ -366,6 +400,22 @@ for micro in microindx_array:
         plot_trajectories(traj.detach().cpu().numpy(),micro)
         #plot_trajectories_1d(traj.detach().cpu().numpy(), torch.linspace(0, 1, 100))
         plot_corner_theta(traj,pr_max,pr_min,micro,lbl_theta)
-        plot_corner_prop(traj,y_cond,out_max,out_min,micro,lbl_prop)
+        plot_corner_prop(traj,y_cond,out_m,out_s,micro,lbl_prop)
 
-#SBC(11,100,ndim)
+SBC(11,100,ndim)
+
+output, presults = load_data("abq_results.h5")
+output[:,:3] = output[:,:3]/1e3
+fig = corner.corner(output, labels=lbl_prop, hist_bin_factor=2, smooth=False)
+axes = np.array(fig.axes).reshape((output.shape[1], output.shape[1]))
+for micro in microindx_array:
+    for yi in range(cdim):
+        for xi in range(yi):
+            ax = axes[yi, xi]
+            ax.plot(output[micro,xi], output[micro,yi], "o",label=micro)
+
+ax.legend(bbox_to_anchor=(0., 2.0, 2., .0), loc=4)
+plt.savefig('./images/corner_cases.png', bbox_inches='tight') 
+
+
+
