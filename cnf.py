@@ -33,14 +33,14 @@ output, out_m, out_s = norm_scaling(output,device)
 microindx_array = [4027,131]
 
 # Load in linkages    
-likelihood_file = 'mogp_model_state_psNG.pth'
-model_file = 'mogp_likelihood_state_psNG.pth'
+likelihood_file = './models/mogp_model_state_psNG.pth'
+model_file = './models/mogp_likelihood_state_psNG.pth'
 likelihood_ps, model_ps = load_mogp(likelihood_file,model_file,6,5,5,int(0.10*8000),3)
 likelihood_ps = likelihood_ps.to(device)
 model_ps = model_ps.to(device)
 
-likelihood_file = 'mogp_model_state_spNG.pth'
-model_file = 'mogp_likelihood_state_spNG.pth'
+likelihood_file = './models/mogp_model_state_spNG.pth'
+model_file = './models/mogp_likelihood_state_spNG.pth'
 likelihood_sp, model_sp = load_mogp(likelihood_file,model_file,4,5,5,int(0.02*8000),5)
 likelihood_sp = likelihood_sp.to(device)
 model_sp = model_sp.to(device)
