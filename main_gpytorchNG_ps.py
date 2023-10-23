@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader, TensorDataset
 from scipy import interpolate
 from matplotlib import pyplot as plt
-from models.mogp import NGDMultitaskGPModel
+from models.mogp import NGDMultitaskGPModel, NGDMultitaskGPModelNorm
 import argparse
 
 plt.rc('xtick',labelsize=20)
@@ -22,8 +22,8 @@ parser.add_argument("--train", action='store_false', help="train (True) cuda")
 parser.add_argument("--load", action='store_true', help="load pretrained model")
 parser.add_argument("--batch", default=2048, type=int, help="minibatch training size")
 parser.add_argument("--num_latent", default=5, type=int, help="# latent GPs")
-parser.add_argument("--num_inducing", default=0.2, type=float, help="% inducing points of training set size")
-parser.add_argument("--num_epochs", default=6000, type=int, help="# training epochs")
+parser.add_argument("--num_inducing", default=0.1, type=float, help="% inducing points of training set size")
+parser.add_argument("--num_epochs", default=10000, type=int, help="# training epochs")
 parser.add_argument("--lr_init", default=1e-2, type=float, help="init. learning rate")
 parser.add_argument("--lr_end", default=0, type=float, help="end learning rate")
 args = parser.parse_args()
@@ -54,6 +54,13 @@ presults_max = presults.max(0)[0]
 presults = 2 * (presults - presults_min)/(presults_max - presults_min) - 1
 presults = presults.detach().cpu().numpy()
 
+#pcs = torch.from_numpy(pcs).float().to(device)
+#pcs_orig = pcs
+#pcs_min = pcs.min(0)[0]
+#pcs_max = pcs.max(0)[0]
+#pcs = 2 * (pcs - pcs_min)/(pcs_max - pcs_min) - 1
+#pcs = pcs.detach().cpu().numpy()
+
 # Standard scaling
 pcs = torch.from_numpy(pcs).float().to(device)
 m = pcs.mean(0, keepdim=True)
@@ -63,6 +70,20 @@ pcs /= s
 pcs = pcs.detach().cpu().numpy()
 
 output = pcs
+
+# Standard scaling
+#from sklearn.preprocessing import MinMaxScaler
+#from pickle import dump
+#scaler = StandardScaler()
+#scaler.fit(z)
+#z = scaler_out.transform(z)
+#z = torch.from_numpy(z).float().to(device)
+#dump(scaler_in, open('scaler_in.pkl', 'wb'))
+
+print(presults_min)
+print(presults_max)
+print(presults.min())
+print(presults.max())
 ###############################################################################
 xtr, xte, ytr, yte = train_test_split(presults, output, test_size=0.2, random_state=10)#17
 
@@ -83,16 +104,18 @@ num_latents = args.num_latent
 num_tasks = train_y.shape[1]
 num_inducing = int(args.num_inducing*train_x.shape[0])
 input_dims = train_x.shape[1]
-num_mix = 4
+#choel_mean_init = torch.std(train_y,0).mean()
+num_mix = 10#6
 
-model = NGDMultitaskGPModel(num_latents,num_tasks,num_inducing,input_dims,num_mix).to(device)
+model = NGDMultitaskGPModelNorm(num_latents,num_tasks,num_inducing,input_dims,num_mix).to(device)
+#model.covar_module.initialize_from_data_empspect(train_x, train_y) 
 likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=num_tasks).to(device)
 
 print('Likelihood Parameters: ' + str(sum(p.numel() for p in likelihood.parameters() if p.requires_grad)))
 print('Model Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
-model_fname = 'mogp_model_state_psNGc.pth'
-lik_fname = 'mogp_likelihood_state_psNGc.pth'
+model_fname = 'mogp_model_state_psNGsm_10m.pth'
+lik_fname = 'mogp_likelihood_state_psNGsm_10m.pth'
 
 if args.load:
     state_dict_model = torch.load(model_fname, map_location=device)
@@ -213,20 +236,31 @@ axes[0].legend()
 plt.tight_layout()
 plt.savefig('gpyPoints_ps.png', bbox_inches='tight')   
 
-nmae_train = np.mean(abs(train_mean - train_y)/np.mean(abs(train_y),axis=0),axis=0)
-nmae_test = np.mean(abs(test_mean - test_y)/np.mean(abs(test_y),axis=0),axis=0)
+print('*******Mean*******')
+nmae_train = np.mean(abs(train_mean - train_y)/np.mean(abs(train_y),axis=0),axis=0)*100
+nmae_test = np.mean(abs(test_mean - test_y)/np.mean(abs(train_y),axis=0),axis=0)*100
 print(nmae_train)
 print(nmae_test)
-
+print('**************')
 mae_train = np.mean(abs(train_mean - train_y),axis=0)
 mae_test = np.mean(abs(test_mean - test_y),axis=0)
 print(mae_train)
 print(mae_test)
-
+print('**************')
 mse_train = np.mean((train_mean - train_y)**2,axis=0)
 mse_test = np.mean((test_mean - test_y)**2,axis=0)
 print(mse_train)
 print(mse_test)
+print('*******Std*******')
+nmae_std_train = np.std(abs(train_mean - train_y)/np.mean(abs(train_y),axis=0),axis=0)*100
+nmae_std_test = np.std(abs(test_mean - test_y)/np.mean(abs(train_y),axis=0),axis=0)*100
+print(nmae_std_train)
+print(nmae_std_test)
+print('**************')
+mae_std_train = np.std(abs(train_mean - train_y),axis=0)
+mae_std_test = np.std(abs(test_mean - test_y),axis=0)
+print(mae_std_train)
+print(mae_std_test)
 
 fig = plt.figure(figsize=(15, 12.5))
 plt.plot(np.arange(0,numPCs,1),nmae_train,linestyle='-', marker='o',)
