@@ -7,6 +7,7 @@ import argparse
 import matplotlib.pyplot as plt
 import corner
 import numpy as np
+#import ot as pot
 import torch
 import torchdyn
 import gpytorch
@@ -21,12 +22,12 @@ font = {'family' : 'serif','weight' : 'normal','size'   : 20}
 plt.rc('font', **font)
 
 parser = argparse.ArgumentParser(description="Continuous Flow")
-parser.add_argument("--train", action='store_true', help="train (True) cuda")
-parser.add_argument("--load", action='store_false', help="load pretrained model")
+parser.add_argument("--train", action='store_false', help="train (True) cuda")
+parser.add_argument("--load", action='store_true', help="load pretrained model")
 parser.add_argument("--n_epoch", default=5000, type=int, help="number of epochs for training RealNVP")
 parser.add_argument("--lr_init", default=1e-4, type=float, help="init. learning rate")
 parser.add_argument("--lr_end", default=1e-10, type=float, help="end learning rate")
-parser.add_argument("--batch_size", default=512, type=int, help="minibatch size")
+parser.add_argument("--batch_size", default=1024, type=int, help="minibatch size")
 parser.add_argument("--sigma", default=1e-6, type=float, help="noise")
 args = parser.parse_args()
 
@@ -260,34 +261,10 @@ def load_mogp(likelihood_file,model_file,num_mix,num_latents,num_tasks,num_induc
     model.load_state_dict(state_dict_model)
     likelihood.load_state_dict(state_dict_likelihood)
     
-    return likelihood, model
-    
-def load_dkl(likelihood_file,model_file,feature_file):
-    num_latents = 3
-    num_tasks = 3
-    num_inducing = int(0.02*7992)
-    input_dims = 3   
-    
-    out_dim = input_dims  
-    layers = 3
-    width = 64   
-    num_mix = 4
-    
-    feature_extractor = FeatureExtractor(input_dims,out_dim,layers=layers,w=width)
-    model = DKLModel(feature_extractor, out_dim, num_tasks, num_inducing, num_mix)
-    likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=num_tasks)
-    
-    state_dict_model = torch.load(likelihood_file)
-    state_dict_likelihood = torch.load(model_file)
-    state_dict_feature = torch.load(feature_file)
-    model.load_state_dict(state_dict_model)
-    likelihood.load_state_dict(state_dict_likelihood)
-    feature_extractor.load_state_disct(state_dict_feature)
-    
-    return likelihood, model    
+    return likelihood, model 
 
 def load_data(file):
-    with h5py.File("abq_results.h5", "r") as f:
+    with h5py.File(file, "r") as f:
         mresults = f['mech'][()]
         tresults = f['thermal'][()]
         presults = f['params'][()]
@@ -307,17 +284,24 @@ def predict(x):
    
 device = torch.device("cuda")    
 
-output, presults = load_data("abq_results.h5")
+output, presults = load_data("abq_results_memphis.h5")
 pr_scaled, pr_min, pr_max = unit_scaling(presults)
+#output, out_min, out_max = unit_scaling(output)
+#pr_scaled, pr_m, pr_s = norm_scaling(presults)
 output, out_m, out_s = norm_scaling(output)
 
-#microindx_array = [7838,2498,3882,409,9473] # on diagonal
-microindx_array = [7838,7105,8132,8548,9473] # off diagonal
+numPCs = 5
+pcs = np.load('microsPCs_memphis.npy')[:,:numPCs]
+pcs, pcs_m, pcs_s = norm_scaling(pcs)
+pcs_min = pcs.min(0)[0]
+pcs_max = pcs.max(0)[0]
+
+microindx_array = [7216,4027,9682,131]
 
 # Load in linkages    
 likelihood_file = 'mogp_model_state_psNGc.pth'#_unit.pth'
 model_file = 'mogp_likelihood_state_psNGc.pth'#_unit.pth'
-likelihood_ps, model_ps = load_mogp(likelihood_file,model_file,4,3,3,int(0.02*7992),3)
+likelihood_ps, model_ps = load_mogp(likelihood_file,model_file,4,3,3,int(0.1*7992),3)
 likelihood_ps = likelihood_ps.to(device)
 model_ps = model_ps.to(device)
 
@@ -333,6 +317,7 @@ layers = 3
 width = 512
 model = MLP(dim=ndim, cdim=cdim, edim=32, layers=layers, w=width).to(device)
 
+#cnf_fname = f'fm_gelu_{layers+2}_{width}_ema_sin_200k_norm.pth'
 cnf_fname = f'fm_gelu_{layers+2}_{width}_ema_sin_norm.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
@@ -341,7 +326,6 @@ if args.load:
     model.load_state_dict(state_dict)
 
 optimizer = torch.optim.Adam(model.parameters(), lr = args.lr_init)
-
 ema_avg = lambda averaged_model_parameter, model_parameter, num_averaged:\
 0.1 * averaged_model_parameter + 0.9 * model_parameter
 ema_model = torch.optim.swa_utils.AveragedModel(model, avg_fn=ema_avg)
@@ -360,7 +344,7 @@ if args.train:
         x1 = 2*torch.rand((args.batch_size,ndim)).to(device) - 1
         y = predict(x1)
         
-        # flow matching loss
+        # flow matching loss Lipman (2023)
         mu_t = t*x1
         sigma_t = 1 - (1 - args.sigma)*t
         x = mu_t + sigma_t * torch.randn(args.batch_size, ndim).to(device)
@@ -381,7 +365,7 @@ if args.train:
             torch.save(model.state_dict(), cnf_fname)
         
 # Compute trajectories and plot
-n_sample = 1024
+n_sample = 2048
 lbl_prop = [r'$E_1$ (GPa)',r'$E_2$ (GPa)', r'$G_{12}$ (GPa)', r'$k_1$ (W/mK)', r'$k_2$ (W/mK)']
 lbl_theta = [r'$\theta_{0}$',r'$\theta_{1}$',r'$\theta_{2}$']
     
@@ -404,7 +388,7 @@ for micro in microindx_array:
 
 SBC(11,100,ndim)
 
-output, presults = load_data("abq_results.h5")
+output, presults = load_data("abq_results_hi.h5")
 output[:,:3] = output[:,:3]/1e3
 fig = corner.corner(output, labels=lbl_prop, hist_bin_factor=2, smooth=False)
 axes = np.array(fig.axes).reshape((output.shape[1], output.shape[1]))
@@ -417,5 +401,6 @@ for micro in microindx_array:
 ax.legend(bbox_to_anchor=(0., 2.0, 2., .0), loc=4)
 plt.savefig('./images/corner_cases.png', bbox_inches='tight') 
 
+#plot_annotate(output)
 
 
