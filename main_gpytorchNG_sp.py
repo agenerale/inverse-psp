@@ -34,8 +34,7 @@ device = torch.device("cuda")
 
 ###############################################################################
 numPCs = 5
-#pcs = np.load('microsPCs_autocorr.npy')[:,:numPCs]
-pcs = np.load('microsPCs_memphis.npy')[:,:numPCs]
+pcs = np.load('./data/microsPCs_memphis.npy')[:,:numPCs]
 
 def normScaling(x):
     x = torch.from_numpy(x).float().to(device)
@@ -61,7 +60,7 @@ def unitScaling(x):
 # Standard scaling
 pcs, m, s = normScaling(pcs)
 
-with h5py.File("abq_results_memphis.h5", "r") as f:
+with h5py.File("./data/abq_results_memphis.h5", "r") as f:
     print("Keys: %s" % f.keys())
     mresults = f['mech'][()]
     tresults = f['thermal'][()]

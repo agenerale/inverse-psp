@@ -32,9 +32,9 @@ device = torch.device("cuda")# if (torch.cuda.is_available() and args.train) els
 
 ###############################################################################
 numPCs = 5
-pcs = np.load('microsPCs_memphis.npy')[:,:numPCs]
+pcs = np.load('./data/microsPCs_memphis.npy')[:,:numPCs]
 
-with h5py.File("abq_results_memphis.h5", "r") as f:
+with h5py.File("./data/abq_results_memphis.h5", "r") as f:
     print("Keys: %s" % f.keys())
     mresults = f['mech'][()]
     tresults = f['thermal'][()]

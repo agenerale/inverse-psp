@@ -26,7 +26,7 @@ args = parser.parse_args()
 device = torch.device("cuda")    
 
 # Load in dataset and specify target process params/properties
-output, presults = load_data("abq_results_memphis.h5")
+output, presults = load_data("./data/abq_results_memphis.h5")
 pr_scaled, pr_min, pr_max = unit_scaling(presults,device)
 output, out_m, out_s = norm_scaling(output,device)
 
