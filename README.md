@@ -27,7 +27,7 @@ Inference of the conditional microstructure distributions provided above can be 
 ```
 python cnf.py
 ```
-where the *train* and *load* flags can be turned on to prevent trainig and load an existing model as
+where the *train* and *load* flags can be turned on to prevent training and load an existing model as
 ```
 python cnf.py --train --load
 ```
