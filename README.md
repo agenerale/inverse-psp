@@ -28,11 +28,11 @@ A. Generale, C. Kelly, G. Harrington, A. Robertson, M. Buzzy, S. Kalidindi. Baye
 </details>
 
 ## Examples
-The framework is briefly displayed below. A prior distribution over the constutient motility and initial concentrations in the phase-field model is defined, alongside a likelihood constructed by a composition of probabilistic forward models (process-structure and structure-property linkages). The microstructure is represented in a statistical sense with a low-dimensional PC representation of its 2-point spatial correlations ($\alpha$). A CNF is trained with conditioning provided by the composite forward model - providing a continuous source of training data exceeding the initial dataset. Lastly, inference is performed through simulation of the underlying ODE, providing posteriors over processing parameter space $p(\theta | k^{*})$. A visualization of this posterior is projected into microstructure space through an additional forward simulation of the phase-field model, providing $p(m | k^{*})$.
+The framework is briefly displayed below. A prior distribution over the constutient motility and initial concentrations in the phase-field model is defined, alongside a likelihood constructed by a composition of probabilistic forward models (process-structure and structure-property linkages). The microstructure is represented in a statistical sense with a low-dimensional PC representation of its 2-point spatial correlations ($\alpha$). A CNF is trained with conditioning provided by the composite forward model - providing a continuous source of training data exceeding the initial dataset. Lastly, inference is performed through simulation of the underlying ODE, providing posteriors over processing parameter space $p(\theta | k^{'})$. A visualization of this posterior is projected into microstructure space through an additional forward simulation of the phase-field model, providing $p(m | k^{'})$.
 
 ![My Image](images/framework.png)
 
-Model performance is evaluated across the entire dataset. Each property set is considered as a target for the framework, where points are sampled from the posterior $p(\theta | k^{*}_n)$ and passed once more through the forward models. A parity plot is shown, alongside its estimated density, and CDF for each property considered.
+Model performance is evaluated across the entire dataset. Each property set is considered as a target for the framework, where points are sampled from the posterior $p(\theta | k^{'}_n)$ and passed once more through the forward models. A parity plot is shown, alongside its estimated density, and CDF for each property considered.
 
 ![My Image](images/model_perf.png)
 
