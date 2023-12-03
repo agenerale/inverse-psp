@@ -34,7 +34,7 @@ The framework is briefly displayed below. A prior distribution over the constuti
 
 Model performance is evaluated across the entire dataset. Each property set is considered as a target for the framework, where points are sampled from the posterior $p(\theta | k^{'}_n)$ and passed once more through the forward models. A parity plot is shown, alongside its estimated density, and CDF for each property considered.
 
-![My Image](images/model_perf.png)
+![My Image](images/marg_pushfwd_dens.png)
 
 ## Contents
 This section provides a brief description of the contents of this repository.
