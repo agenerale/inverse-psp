@@ -82,6 +82,7 @@ if args.train:
         optimizer.zero_grad()
         t = torch.rand(args.batch_size, 1).to(device)
         x1 = 2*torch.rand((args.batch_size,ndim)).to(device) - 1
+        
         y = predict(x1)
         
         mu_t = t*x1
