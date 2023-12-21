@@ -14,8 +14,8 @@ font = {'family' : 'serif','weight' : 'normal','size'   : 20}
 plt.rc('font', **font)
 
 parser = argparse.ArgumentParser(description="Continuous Normalizing Flow")
-parser.add_argument("--train", action='store_true', help="train")
-parser.add_argument("--load", action='store_false', help="load pretrained model")
+parser.add_argument("--train", action='store_false', help="train")
+parser.add_argument("--load", action='store_true', help="load pretrained model")
 parser.add_argument("--n_epoch", default=1000, type=int, help="number of epochs for training")
 parser.add_argument("--lr_init", default=1e-3, type=float, help="initial learning rate")
 parser.add_argument("--lr_end", default=1e-10, type=float, help="end learning rate")
