@@ -30,7 +30,7 @@ class CondTimeEmbed(torch.nn.Module):
         super(CondTimeEmbed, self).__init__()
         
         self.net = torch.nn.Sequential(
-            torch.nn.Linear(in_dim + 3, w),
+            torch.nn.Linear(in_dim, w),
             torch.nn.GELU(),
             torch.nn.Linear(w, out_dim),
             )
