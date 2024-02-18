@@ -21,6 +21,11 @@ parser.add_argument("--lr_init", default=1e-3, type=float, help="initial learnin
 parser.add_argument("--lr_end", default=1e-10, type=float, help="end learning rate")
 parser.add_argument("--batch_size", default=1024, type=int, help="minibatch size")
 parser.add_argument("--sigma", default=1e-3, type=float, help="noise")
+# MLP Architecture
+parser.add_argument("--args.ndim", default=3, type=int, help="flow dimensions")
+parser.add_argument("--args.cdim", default=5, type=int, help="conditioning dimensions")
+parser.add_argument("--args.layers", default=2, type=int, help="number of args.layers")
+parser.add_argument("--args.width", default=256, type=int, help="layer args.width")
 args = parser.parse_args()
 
 device = torch.device("cuda")    
@@ -51,13 +56,9 @@ def predict(x):
     
     return y 
 
-ndim = 3
-cdim = 5
-layers = 2
-width = 256
-model = MLP(dim=ndim, cdim=cdim, edim=16, layers=layers, w=width).to(device)
+model = MLP(dim=args.ndim, args.cdim=args.cdim, edim=16, args.layers=args.layers, w=args.width).to(device)
 
-cnf_fname = f'fm_gelu_{layers+2}_{width}_ema_sin_norm.pth'
+cnf_fname = f'fm_gelu_{args.layers+2}_{args.width}_ema_sin_norm.pth'
 print('Total Parameters: ' + str(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
 if args.load:
@@ -81,13 +82,13 @@ if args.train:
     for k in range(args.n_epoch):
         optimizer.zero_grad()
         t = torch.rand(args.batch_size, 1).to(device)
-        x1 = 2*torch.rand((args.batch_size,ndim)).to(device) - 1
+        x1 = 2*torch.rand((args.batch_size,args.ndim)).to(device) - 1
         
         y = predict(x1)
         
         mu_t = t*x1
         sigma_t = 1 - (1 - args.sigma)*t
-        x = mu_t + sigma_t * torch.randn(args.batch_size, ndim).to(device)
+        x = mu_t + sigma_t * torch.randn(args.batch_size, args.ndim).to(device)
         ut = (x1 - (1 - args.sigma)*x)/(1 - (1 - args.sigma)*t) 
         vt = model(x, y, t)    
 
@@ -112,18 +113,18 @@ n_traj = 100
 lbl_prop = [r'$E_1$ (GPa)',r'$E_2$ (GPa)', r'$G_{12}$ (GPa)', r'$k_1$ (W/mK)', r'$k_2$ (W/mK)']
 lbl_theta = [r'$\theta_{1}$',r'$\theta_{2}$',r'$\theta_{3}$']
     
-traj_acc = torch.zeros((len(microindx_array),n_traj,n_sample,ndim)).to(device)
+traj_acc = torch.zeros((len(microindx_array),n_traj,n_sample,args.ndim)).to(device)
 for micro in microindx_array:
     y_cond = output[micro,:]
     indx = microindx_array.index(micro)
 
     node = NeuralODE(
-        torchdyn_wrapper(model, y_cond.expand(n_sample,cdim)), solver="dopri5", sensitivity="adjoint", atol=1e-5, rtol=1e-5
+        torchdyn_wrapper(model, y_cond.expand(n_sample,args.cdim)), solver="dopri5", sensitivity="adjoint", atol=1e-5, rtol=1e-5
         ).to(device)
 
     with torch.no_grad():
         traj = node.trajectory(
-            torch.randn((n_sample,ndim)).to(device),
+            torch.randn((n_sample,args.ndim)).to(device),
             t_span=torch.linspace(0, 1, n_traj),
             )      
         traj_acc[indx,...] = traj
@@ -131,7 +132,7 @@ for micro in microindx_array:
         plot_corner_theta(traj,pr_max,pr_min,micro,lbl_theta,presults)
         plot_corner_prop(traj,predict,y_cond,out_m,out_s,micro,lbl_prop)
         
-SBC(model,predict,ndim,cdim,device,N=2000,L=100,
+SBC(model,predict,args.ndim,args.cdim,device,N=2000,L=100,
         n_bins=None,
         bin_interval=0.95,
         stacked=False,
