@@ -9,20 +9,21 @@ class ResidualBlock(torch.nn.Module):
         
         self.net = torch.nn.Sequential(
             torch.nn.Linear(in_dim, w),
-            torch.nn.GELU(),
             torch.nn.LayerNorm(w),
+            torch.nn.GELU(),
             torch.nn.Linear(w, out_dim),
             )
-        self.gelu = torch.nn.GELU()
+        
         self.bn = torch.nn.LayerNorm(out_dim)
+        self.gelu = torch.nn.GELU()
         
     def forward(self, x, yt):
         in_x = torch.cat([x, yt], -1)
         residual = x
         out = self.net(in_x)
         out += residual
-        out = self.gelu(out)
         out = self.bn(out)
+        out = self.gelu(out)
         return out
     
 class CondTimeEmbed(torch.nn.Module):
@@ -31,6 +32,7 @@ class CondTimeEmbed(torch.nn.Module):
         
         self.net = torch.nn.Sequential(
             torch.nn.Linear(in_dim, w),
+            torch.nn.LayerNorm(w),
             torch.nn.GELU(),
             torch.nn.Linear(w, out_dim),
             )
@@ -47,8 +49,8 @@ class MLP(torch.nn.Module):
             out_dim = dim
         self.first_layer = torch.nn.Sequential(
             torch.nn.Linear(edim + dim, w),
-            torch.nn.GELU(),
             torch.nn.LayerNorm(w),
+            torch.nn.GELU(),
             )
         
         self.cond = CondTimeEmbed(cdim+1,edim)
