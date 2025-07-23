@@ -1,0 +1,31 @@
+paths:
+  output_dir: ./results
+  model_dir: ./models/saved
+  model_file: mogp_model_state_sp.pth
+  likelihood_file: mogp_likelihood_state_sp.pth
+
+data:
+  path: ./data/data.h5
+  input: input
+  output: mid
+  n_pcs: 5
+  test_size: 0.2
+  random_state: 10
+
+model:
+  n_latent: 5
+  spectral: true
+  n_smix: 6
+  n_inducing: 0.125
+
+train:
+  batch_size: 512
+  n_epochs: 400
+  lr_init: 0.01
+  lr_end: 0.000001
+
+logging:
+  interval: 5
+
+checkpoint:
+  interval: 500

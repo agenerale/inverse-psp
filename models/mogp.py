@@ -1,15 +1,10 @@
 import torch
-import numpy as np
-import torch.nn.functional as F
-import torchvision
 import gpytorch
-torch.set_default_dtype(torch.float32)
 
-class MultitaskGPModel(gpytorch.models.ApproximateGP):
-    def __init__(self, num_latents, num_tasks, num_inducing, input_dims):
+class LMCGPModel(gpytorch.models.ApproximateGP):
+    def __init__(self, num_latents, num_tasks, num_inducing, input_dims, spectral=False, num_mix=None):
         
         inducing_points = torch.randn(num_latents, num_inducing, input_dims)
-        #inducing_points = torch.randn(num_latents, num_inducing)
         
         batch_shape = torch.Size([num_latents])
 
@@ -29,25 +24,27 @@ class MultitaskGPModel(gpytorch.models.ApproximateGP):
         super().__init__(variational_strategy)
 
         self.mean_module = gpytorch.means.ConstantMean(batch_shape=torch.Size([num_latents]))
-        self.covar_module = gpytorch.kernels.SpectralMixtureKernel(num_mixtures=num_mix,
-                            batch_shape=batch_shape, ard_num_dims=input_dims)
-
-        #self.covar_module = gpytorch.kernels.ScaleKernel(
-        #    gpytorch.kernels.RBFKernel(batch_shape=batch_shape,ard_num_dims=input_dims),
-        #    batch_shape=batch_shape, ard_num_dims=None
-        #)     
+        
+        if spectral:
+            assert num_mix is not None, "Number of spectral mixture components (num_mix) must be specified"
+            self.covar_module = gpytorch.kernels.SpectralMixtureKernel(num_mixtures=4,
+                               batch_shape=batch_shape, ard_num_dims=input_dims)
+        else:
+            self.covar_module = gpytorch.kernels.ScaleKernel(
+                gpytorch.kernels.RBFKernel(batch_shape=batch_shape,ard_num_dims=input_dims),
+                batch_shape=batch_shape, ard_num_dims=None
+            )     
 
     def forward(self, x):
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)    
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)   
     
     
-class NGDMultitaskGPModel(gpytorch.models.ApproximateGP):
-    def __init__(self, num_latents, num_tasks, num_inducing, input_dims, num_mix):
+class NGLMCGPModel(gpytorch.models.ApproximateGP):
+    def __init__(self, num_latents, num_tasks, num_inducing, input_dims, spectral=False, num_mix=None):
         
         inducing_points = torch.randn(num_latents, num_inducing, input_dims)
-        #inducing_points = torch.randn(num_latents, num_inducing)
         
         batch_shape = torch.Size([num_latents])
 
@@ -64,15 +61,18 @@ class NGDMultitaskGPModel(gpytorch.models.ApproximateGP):
             latent_dim=-1
         )
 
-        # 4 for SP
         super().__init__(variational_strategy)
 
         self.mean_module = gpytorch.means.ConstantMean(batch_shape=torch.Size([num_latents]))
-        self.covar_module = gpytorch.kernels.SpectralMixtureKernel(num_mixtures=num_mix,
-                            batch_shape=batch_shape, ard_num_dims=input_dims)
-
-
-        
+        if spectral:
+            assert num_mix is not None, "Number of spectral mixture components (num_mix) must be specified"
+            self.covar_module = gpytorch.kernels.SpectralMixtureKernel(num_mixtures=4,
+                               batch_shape=batch_shape, ard_num_dims=input_dims)
+        else:
+            self.covar_module = gpytorch.kernels.ScaleKernel(
+                gpytorch.kernels.RBFKernel(batch_shape=batch_shape,ard_num_dims=input_dims),
+                batch_shape=batch_shape, ard_num_dims=None
+            )       
 
     def forward(self, x):
         mean_x = self.mean_module(x)

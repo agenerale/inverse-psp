@@ -41,24 +41,24 @@ This section provides a brief description of the contents of this repository.
 
 1. *Data*: Contains processing parameters, resulting property set (elastic + thermal properties), and PC scores of 2-point spatial correlations of microstructures in the initial dataset.
 
-2. *Helpers*: Code for helper functions utilized in main script *cnf.py*.
+2. *Helpers*: Code for helper functions utilized in main script *main.py*.
 
 3. *Models*: Contains code for instantiating the sparse variational multi-output
  Gaussian process (SV-MOGP) used in this work, along with the actual trained models utilized.
  
-4. *cnf.py*: Main executable for training and post-processing results from the conditional continuous normalizing flow.
+4. *main.py*: Main executable for training and post-processing results from the conditional continuous normalizing flow.
 
-5. *main_gpytorchNG_ps.py*: Main executable for training of the SV-MOGP process-structure linkage.
+5. *main_ps.py*: Main executable for training of the SV-MOGP process-structure linkage.
  
-6. *main_gpytorchNG_sp.py*: Main executable for training of the SV-MOGP structure-property linkage.
+6. *main_sp.py*: Main executable for training of the SV-MOGP structure-property linkage.
 
 ## Execute
 Inference of the conditional microstructure distributions provided above can be replicated as
 ```
-python cnf.py
+python main.py
 ```
 where the *train* and *load* flags can be turned on to prevent training and load an existing model as
 ```
-python cnf.py --train --load
+python main.py --train --load
 ```
 allowing for postprocessing of the results.
