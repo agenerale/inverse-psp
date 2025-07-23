@@ -57,8 +57,8 @@ Inference of the conditional microstructure distributions provided above can be 
 ```
 python main.py
 ```
-where the *train* and *load* flags can be turned on to prevent training and load an existing model as
+where the *mode* flag can be set to either 'train' or 'eval' at the command line. For example:
 ```
-python main.py --train --load
+python main.py --mode "eval"
 ```
-allowing for postprocessing of the results.
+allows for postprocessing of the results.
